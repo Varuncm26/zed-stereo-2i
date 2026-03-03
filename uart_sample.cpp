@@ -1,44 +1,65 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <termios.h>
+#include <poll.h>
 #include "uart.h"
 
+// Helper to set Jetson terminal to raw mode so we catch keys instantly
+void set_conio_terminal_mode(struct termios *orig) {
+    struct termios new_termios;
+    tcgetattr(0, orig);
+    new_termios = *orig;
+    cfmakeraw(&new_termios);
+    tcsetattr(0, TCSANOW, &new_termios);
+}
+
+void reset_terminal_mode(struct termios *orig) {
+    tcsetattr(0, TCSANOW, orig);
+}
+
 int main() {
-    // 1. Initialize the UART port at 115200 baud
-    int fd = InitUart(B115200);
+    struct termios orig_termios;
+    int uart_fd = InitUart(B115200);
     
-    if (fd < 0) {
-        printf("Failed to initialize UART.\n");
-        return 1;
-    }
+    if (uart_fd < 0) return 1;
 
-    // 2. Send initial data
-    const char *msg = "Hello from Jetson!\n";
-    int bytes_sent = write(fd, msg, strlen(msg));
-    
-    if (bytes_sent < 0) {
-        perror("Failed to write to UART");
-    } else {
-        printf("Sent %d bytes to computer.\n", bytes_sent);
-    }
+    printf("Starting Chat. Type locally to send. Press Ctrl+C to quit.\n\r");
 
-    // 3. Listen to what the computer says (infinite loop)
-    printf("Listening for incoming data... (Press Ctrl+C to stop)\n");
-    
-    char read_buf[256];
+    // Set local keyboard to raw mode
+    set_conio_terminal_mode(&orig_termios);
+
+    struct pollfd fds[2];
+    fds[0].fd = 0;          // Standard Input (Keyboard)
+    fds[0].events = POLLIN;
+    fds[1].fd = uart_fd;    // UART Port
+    fds[1].events = POLLIN;
+
+    char buf[256];
     while (1) {
-        // This will block until at least 1 byte arrives
-        int n = read(fd, &read_buf, sizeof(read_buf) - 1);
-        
-        if (n > 0) {
-            read_buf[n] = '\0'; // Null-terminate the string
-            printf("Received: %s", read_buf);
-            fflush(stdout); // Ensure it prints immediately
-        } else if (n < 0) {
-            perror("Error reading");
-            break;
+        // Wait for either the keyboard or the UART to have data
+        if (poll(fds, 2, -1) > 0) {
+            
+            // 1. If Keyboard has data -> Write to UART
+            if (fds[0].revents & POLLIN) {
+                int n = read(0, buf, sizeof(buf));
+                if (n > 0) {
+                    // Check for Ctrl+C (ASCII 3) to exit raw mode gracefully
+                    if (buf[0] == 3) break; 
+                    write(uart_fd, buf, n);
+                }
+            }
+
+            // 2. If UART has data -> Write to Screen
+            if (fds[1].revents & POLLIN) {
+                int n = read(uart_fd, buf, sizeof(buf));
+                if (n > 0) {
+                    write(1, buf, n); // Write directly to stdout
+                }
+            }
         }
     }
 
-    close(fd);
+    reset_terminal_mode(&orig_termios);
+    close(uart_fd);
     return 0;
 }
