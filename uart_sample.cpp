@@ -13,7 +13,7 @@ int main() {
 
     // 2. Send initial data
     const char *msg = "Hello from Jetson!\n";
-    int bytes_sent = write(fd, msg, strlen(msg));
+    int bytes_sent = write(fd, msg[0], 1);
     
     if (bytes_sent < 0) {
         perror("Failed to write to UART");
