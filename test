@@ -1,0 +1,7 @@
+// After zed.retrieveImage(image, VIEW::LEFT);
+std::string filename = "zed_image_" + std::to_string(i) + ".png";
+sl::ERROR_CODE save_state = image.write(filename.c_str());
+
+if (save_state == sl::ERROR_CODE::SUCCESS) {
+    std::cout << "Saved: " << filename << std::endl;
+}
